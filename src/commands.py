@@ -60,6 +60,8 @@ async def _cancel_inactivity_timer(context: ContextTypes.DEFAULT_TYPE, user_id: 
 
 
 async def cmd_pingollama(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
 	info = ping_ollama()
 	msg = texts.OLLAMA_DOWN if info is None else f"Оllama доступна: {info}"
 	if update.message:
@@ -67,6 +69,17 @@ async def cmd_pingollama(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def cmd_omodels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
+	# Check if bot is busy and show status
+	locked_by = await session_manager.get_busy_info()
+	if locked_by is not None:
+		busy_text = f"🤖 Бот занят пользователем {locked_by}.\n\nПопробуйте позже."
+		if update.message:
+			await update.message.reply_text(busy_text)
+		return
+	
 	ids = list_ollama_models()
 	if not ids:
 		if update.message:
@@ -86,8 +99,16 @@ async def cb_select_model(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 	if not data.startswith("select:"):
 		await query.answer()
 		return
-	model_id = data[len("select:"):]
+	
 	user_id = query.from_user.id if query.from_user else 0
+	
+	# Check if bot is busy before processing selection
+	locked_by = await session_manager.get_busy_info()
+	if locked_by is not None and locked_by != user_id:
+		await query.answer(text=f"🤖 Бот занят пользователем {locked_by}. Попробуйте позже.", show_alert=True)
+		return
+	
+	model_id = data[len("select:"):]
 	ok, msg = await session_manager.select_model(user_id, model_id)
 	await query.answer(text=msg, show_alert=not ok)
 	try:
@@ -107,12 +128,16 @@ async def cb_select_model(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message:
 		return
+	
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
 	sess = await session_manager.get_status(update.effective_user.id)
-	locked_by = await session_manager.who_locked(sess.model_id) if sess.model_id else None
+	locked_by = await session_manager.get_busy_info()
 	lines = ["Статус:"]
 	lines.append(f"Текущая модель: {sess.model_id or '—'}")
-	if sess.model_id:
-		lines.append(f"Занята пользователем: {locked_by if locked_by is not None else 'нет'}")
+	if locked_by is not None:
+		lines.append(f"🤖 Бот занят пользователем: {locked_by}")
 	lines.append(f"temperature={sess.temperature}, top_p={sess.top_p}, max_tokens={sess.max_tokens}")
 	lines.append(texts.STATUS_SYSTEM_SET if sess.system_prompt else texts.STATUS_SYSTEM_NOT_SET)
 	await update.message.reply_text("\n".join(lines))
@@ -123,6 +148,10 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cmd_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message:
 		return
+	
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
 	sess = await session_manager.get_status(update.effective_user.id)
 	if sess.model_id:
 		await update.message.reply_text("Выгружаю модель из памяти...")
@@ -144,6 +173,10 @@ async def cmd_end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_clearhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message:
 		return
+	
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
 	sess = await session_manager.get_status(update.effective_user.id)
 	sess.history.clear()
 	await update.message.reply_text("История диалога очищена (модель не перезапускалась).")
@@ -154,6 +187,10 @@ async def cmd_clearhistory(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message:
 		return
+	
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
 	await session_manager.set_pending(update.effective_user.id, None)
 	await update.message.reply_text("Ожидание ввода отменено.")
 
@@ -161,6 +198,10 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cmd_settemp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message:
 		return
+	
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
 	await session_manager.set_pending(update.effective_user.id, "settemp")
 	await update.message.reply_text(texts.PROMPT_ENTER_TEMP)
 	await _reset_inactivity_timer(update, context)
@@ -169,6 +210,10 @@ async def cmd_settemp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def cmd_settopp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message:
 		return
+	
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
 	await session_manager.set_pending(update.effective_user.id, "settopp")
 	await update.message.reply_text(texts.PROMPT_ENTER_TOPP)
 	await _reset_inactivity_timer(update, context)
@@ -177,6 +222,10 @@ async def cmd_settopp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def cmd_setmax(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message:
 		return
+	
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
 	await session_manager.set_pending(update.effective_user.id, "setmax")
 	await update.message.reply_text(texts.PROMPT_ENTER_MAX)
 	await _reset_inactivity_timer(update, context)
@@ -185,6 +234,10 @@ async def cmd_setmax(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cmd_system(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message:
 		return
+	
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
 	await session_manager.set_pending(update.effective_user.id, "system")
 	await update.message.reply_text(texts.PROMPT_ENTER_SYSTEM)
 	await _reset_inactivity_timer(update, context)
@@ -198,6 +251,10 @@ def _chunk_text(text: str, size: int = MAX_TELEGRAM_CHUNK):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 	if not update.message:
 		return
+	
+	# Add user to active users
+	await session_manager.add_active_user(update.effective_user.id)
+	
 	text = (update.message.text or "").strip()
 	sess = await session_manager.get_status(update.effective_user.id)
 	if sess.pending_action:
@@ -247,6 +304,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 			await _reset_inactivity_timer(update, context)
 			return
 
+	# Check if bot is busy before processing message
+	locked_by = await session_manager.get_busy_info()
+	if locked_by is not None and locked_by != update.effective_user.id:
+		await update.message.reply_text(f"🤖 Бот занят пользователем {locked_by}. Попробуйте позже.")
+		return
+	
 	if not sess.model_id:
 		await update.message.reply_text(texts.NEED_SELECT_MODEL)
 		return
